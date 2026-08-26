@@ -1,0 +1,9 @@
+// Lightweight nanoid replacement (no crypto dependency for RN)
+export function nanoid(size = 21): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
+  let result = '';
+  for (let i = 0; i < size; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
