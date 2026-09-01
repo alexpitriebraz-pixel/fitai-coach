@@ -1,0 +1,58 @@
+workflows:
+  ios-release:
+    name: iOS Release (App Store)
+    max_build_duration: 90
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.fitaicoach.app
+      vars:
+        APPLE_TEAM_ID: "74NZNS38SF"
+        BUNDLE_ID: com.fitaicoach.app
+        EXPO_PUBLIC_API_URL: "https://api.fitaicoach.online"
+      node: v20.17.0
+      xcode: latest
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+      - name: Expo prebuild iOS
+        script: npx expo prebuild --clean --platform ios --non-interactive
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --workspace "ios/FitAI Coach.xcworkspace" \
+            --scheme "FitAI Coach"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
+  android-release:
+    name: Android Release (Play Store)
+    max_build_duration: 90
+    environment:
+      android_signing:
+        - fitai-keystore
+      vars:
+        BUNDLE_ID: com.fitaicoach.app
+        EXPO_PUBLIC_API_URL: "https://api.fitaicoach.online"
+      node: v20.17.0
+      java: "17"
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+      - name: Expo prebuild Android
+        script: npx expo prebuild --clean --platform android --non-interactive
+      - name: Build AAB
+        script: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew bundleRelease
+    artifacts:
+      - android/app/build/outputs/**/*.aab
+      - android/app/build/outputs/**/*.apk
