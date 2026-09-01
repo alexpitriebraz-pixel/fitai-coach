@@ -38,6 +38,12 @@ workflows:
       - android/app/build/outputs/bundle/release/app-release.aab
       - android/app/build/outputs/apk/release/*.apk
 
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: false
+
   # ─── iOS Release (App Store / TestFlight) ────────────────────────────────────
   ios-release:
     name: iOS Release (App Store)
@@ -50,7 +56,7 @@ workflows:
       groups:
         - ios_signing  # APP_STORE_CONNECT_PRIVATE_KEY, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
       vars:
-        BUNDLE_ID: com.fitaicoach.app
+        BUNDLE_ID: online.fitaicoach.app
         APPLE_TEAM_ID: "74NZNS38SF"
         EXPO_PUBLIC_API_URL: "https://api.fitaicoach.online"
 
