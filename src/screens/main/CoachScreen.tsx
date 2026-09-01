@@ -26,7 +26,7 @@ export function CoachScreen() {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const profile = useAppStore((s) => s.profile);
-  const { messages, isGenerating, addMessage, setGenerating } = useChatStore();
+  const { messages, isGenerating, addMessage, updateMessage, setGenerating } = useChatStore();
   const { canSendMessage, incrementMessageUsage, dailyMessagesUsed, dailyMessageLimit, isPremium } = useSubscriptionStore();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const flatListRef = useRef<FlatList>(null);
@@ -58,25 +58,18 @@ export function CoachScreen() {
       let streamedText = '';
       const assistantMsg = addMessage('assistant', '...');
 
-      // Update message in-place as chunks arrive
       await sendMessageToCoach(allMessages, profile, (chunk) => {
         streamedText += chunk;
-        // We'll update UI by refreshing the store; simplified here
+        updateMessage(assistantMsg.id, streamedText);
+        scrollToBottom();
       });
 
-      // Replace placeholder with full response
-      const { messages: currentMsgs } = useChatStore.getState();
-      const updated = currentMsgs.map((m) =>
-        m.id === assistantMsg.id ? { ...m, content: streamedText || 'I encountered an error. Please try again.' } : m
-      );
-      useChatStore.setState({ messages: updated });
+      if (!streamedText) updateMessage(assistantMsg.id, 'I encountered an error. Please try again.');
     } catch (err: any) {
-      const errorMsg = err?.message?.includes('API') ? 'Please check your API key in .env' : 'Failed to get a response. Please try again.';
+      const errorMsg = 'Failed to get a response. Please try again.';
       const { messages: currentMsgs } = useChatStore.getState();
-      const updated = currentMsgs.map((m) =>
-        m.content === '...' ? { ...m, content: errorMsg } : m
-      );
-      useChatStore.setState({ messages: updated });
+      const placeholder = currentMsgs.find((m) => m.content === '...');
+      if (placeholder) updateMessage(placeholder.id, errorMsg);
     } finally {
       setGenerating(false);
       scrollToBottom();

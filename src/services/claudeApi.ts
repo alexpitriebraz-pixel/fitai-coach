@@ -1,67 +1,18 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { COACH_SYSTEM_PROMPT } from '../constants';
+import { api } from './api';
 import type { ChatMessage, UserProfile } from '../types';
-
-const client = new Anthropic({
-  apiKey: process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ?? '',
-  dangerouslyAllowBrowser: true,
-});
-
-function buildSystemPrompt(profile: UserProfile | null): string {
-  if (!profile) return COACH_SYSTEM_PROMPT;
-
-  return `${COACH_SYSTEM_PROMPT}
-
-USER PROFILE:
-- Name: ${profile.name || 'User'}
-- Goal: ${profile.goal.replace('_', ' ')}
-- Experience: ${profile.experienceLevel}
-- Equipment: ${profile.equipment.join(', ')}
-- Training days/week: ${profile.daysPerWeek}
-- Units: ${profile.unitSystem === 'metric' ? 'kg/km' : 'lb/miles'}`;
-}
 
 export async function sendMessageToCoach(
   messages: ChatMessage[],
-  profile: UserProfile | null,
+  _profile: UserProfile | null,
   onChunk?: (chunk: string) => void,
 ): Promise<string> {
-  const apiMessages = messages.map((m) => ({
-    role: m.role as 'user' | 'assistant',
-    content: m.content,
-  }));
-
-  if (onChunk) {
-    // Streaming
-    let fullText = '';
-    const stream = await client.messages.stream({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      system: buildSystemPrompt(profile),
-      messages: apiMessages,
-    });
-
-    for await (const chunk of stream) {
-      if (
-        chunk.type === 'content_block_delta' &&
-        chunk.delta.type === 'text_delta'
-      ) {
-        fullText += chunk.delta.text;
-        onChunk(chunk.delta.text);
-      }
-    }
-    return fullText;
-  } else {
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      system: buildSystemPrompt(profile),
-      messages: apiMessages,
-    });
-
-    const block = response.content[0];
-    return block.type === 'text' ? block.text : '';
-  }
+  const apiMessages = messages.map((m) => ({ role: m.role, content: m.content }));
+  let fullText = '';
+  await api.streamChat(apiMessages, (chunk) => {
+    fullText += chunk;
+    onChunk?.(chunk);
+  });
+  return fullText;
 }
 
 export async function generateWorkoutPlan(profile: UserProfile): Promise<string> {
@@ -80,13 +31,9 @@ Please structure it clearly with:
 
 Format it so I can easily follow along.`;
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 2048,
-    system: buildSystemPrompt(profile),
-    messages: [{ role: 'user', content: prompt }],
+  let fullText = '';
+  await api.streamChat([{ role: 'user', content: prompt }], (chunk) => {
+    fullText += chunk;
   });
-
-  const block = response.content[0];
-  return block.type === 'text' ? block.text : '';
+  return fullText;
 }

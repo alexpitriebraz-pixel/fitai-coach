@@ -1,10 +1,7 @@
 import { create } from 'zustand';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { api } from '../services/api';
 import { nanoid } from '../utils/nanoid';
 import type { WorkoutPlan, WorkoutLog, WorkoutExercise, WorkoutSet } from '../types';
-
-const PLANS_KEY = '@fitai:plans';
-const LOGS_KEY = '@fitai:logs';
 
 interface WorkoutState {
   plans: WorkoutPlan[];
@@ -32,21 +29,21 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => ({
   hydrated: false,
 
   addPlan: async (planData) => {
-    const plan: WorkoutPlan = {
-      ...planData,
-      id: nanoid(),
-      createdAt: new Date().toISOString(),
-    };
-    const plans = [plan, ...get().plans];
-    set({ plans });
-    await AsyncStorage.setItem(PLANS_KEY, JSON.stringify(plans));
-    return plan;
+    try {
+      const plan = await api.createPlan(planData);
+      set((s) => ({ plans: [plan, ...s.plans] }));
+      return plan;
+    } catch {
+      // Offline fallback — use local ID
+      const plan: WorkoutPlan = { ...planData, id: nanoid(), createdAt: new Date().toISOString() };
+      set((s) => ({ plans: [plan, ...s.plans] }));
+      return plan;
+    }
   },
 
   removePlan: async (planId) => {
-    const plans = get().plans.filter((p) => p.id !== planId);
-    set({ plans });
-    await AsyncStorage.setItem(PLANS_KEY, JSON.stringify(plans));
+    set((s) => ({ plans: s.plans.filter((p) => p.id !== planId) }));
+    api.deletePlan(planId).catch(() => {});
   },
 
   startWorkout: (plan) => {
@@ -77,72 +74,47 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => ({
     const log = get().activeLog;
     if (!log) return null;
 
-    const startedAt = new Date(log.startedAt);
-    const completedAt = new Date();
-    const durationMinutes = Math.round((completedAt.getTime() - startedAt.getTime()) / 60000);
+    const completedAt = new Date().toISOString();
+    const durationMinutes = Math.round(
+      (new Date(completedAt).getTime() - new Date(log.startedAt).getTime()) / 60000,
+    );
+    const finishedLog: WorkoutLog = { ...log, completedAt, durationMinutes };
 
-    const finishedLog: WorkoutLog = {
-      ...log,
-      completedAt: completedAt.toISOString(),
-      durationMinutes,
-    };
-
-    const logs = [finishedLog, ...get().logs];
-    set({ logs, activeLog: null, activePlanId: null });
-    await AsyncStorage.setItem(LOGS_KEY, JSON.stringify(logs));
+    set((s) => ({ logs: [finishedLog, ...s.logs], activeLog: null, activePlanId: null }));
+    api.createLog(finishedLog).catch(() => {});
     return finishedLog;
   },
 
-  cancelWorkout: () => {
-    set({ activeLog: null, activePlanId: null });
-  },
+  cancelWorkout: () => set({ activeLog: null, activePlanId: null }),
 
   getStreak: () => {
     const logs = get().logs.filter((l) => l.completedAt);
     if (logs.length === 0) return 0;
-
     const dates = [...new Set(logs.map((l) => l.completedAt!.split('T')[0]))].sort().reverse();
     let streak = 0;
     let current = new Date();
     current.setHours(0, 0, 0, 0);
-
     for (const dateStr of dates) {
       const date = new Date(dateStr);
       const diffDays = Math.round((current.getTime() - date.getTime()) / 86400000);
-      if (diffDays === 0 || diffDays === 1) {
-        streak++;
-        current = date;
-      } else {
-        break;
-      }
+      if (diffDays === 0 || diffDays === 1) { streak++; current = date; }
+      else break;
     }
     return streak;
   },
 
   getWeeklyCount: () => {
-    const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - now.getDay());
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     weekStart.setHours(0, 0, 0, 0);
-
-    return get().logs.filter((l) => {
-      if (!l.completedAt) return false;
-      return new Date(l.completedAt) >= weekStart;
-    }).length;
+    return get().logs.filter((l) => l.completedAt && new Date(l.completedAt) >= weekStart).length;
   },
 
   hydrate: async () => {
     try {
-      const [rawPlans, rawLogs] = await Promise.all([
-        AsyncStorage.getItem(PLANS_KEY),
-        AsyncStorage.getItem(LOGS_KEY),
-      ]);
-      set({
-        plans: rawPlans ? JSON.parse(rawPlans) : [],
-        logs: rawLogs ? JSON.parse(rawLogs) : [],
-        hydrated: true,
-      });
-    } catch (_) {
+      const [plans, logs] = await Promise.all([api.getPlans(), api.getLogs()]);
+      set({ plans, logs, hydrated: true });
+    } catch {
       set({ hydrated: true });
     }
   },
