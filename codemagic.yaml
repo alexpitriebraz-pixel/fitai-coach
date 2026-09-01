@@ -1,58 +1,111 @@
 workflows:
+
+  # ─── Android Release (Google Play) ──────────────────────────────────────────
+  android-release:
+    name: Android Release (Google Play)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      java: "17"
+      node: "20"
+      groups:
+        - android_signing  # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD, GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+      vars:
+        EXPO_PUBLIC_API_URL: "https://api.fitaicoach.online"
+
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+
+      - name: Expo prebuild Android
+        script: npx expo prebuild --clean --platform android --non-interactive
+
+      - name: Set up keystore
+        script: |
+          echo $CM_KEYSTORE | base64 --decode > android/app/release.keystore
+
+      - name: Build Android AAB (release)
+        script: |
+          cd android
+          chmod +x gradlew
+          ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file=$CM_BUILD_DIR/android/app/release.keystore \
+            -Pandroid.injected.signing.store.password=$CM_KEYSTORE_PASSWORD \
+            -Pandroid.injected.signing.key.alias=$CM_KEY_ALIAS \
+            -Pandroid.injected.signing.key.password=$CM_KEY_PASSWORD
+
+    artifacts:
+      - android/app/build/outputs/bundle/release/app-release.aab
+
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: false
+
+  # ─── iOS Release (App Store / TestFlight) ───────────────────────────────────
   ios-release:
     name: iOS Release (App Store)
     max_build_duration: 90
+    instance_type: mac_mini_m2
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.fitaicoach.app
+      xcode: latest
+      node: "20"
+      cocoapods: default
+      groups:
+        - ios_signing  # APP_STORE_CONNECT_PRIVATE_KEY, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
       vars:
-        APPLE_TEAM_ID: "74NZNS38SF"
         BUNDLE_ID: com.fitaicoach.app
         EXPO_PUBLIC_API_URL: "https://api.fitaicoach.online"
-      node: v20.17.0
-      xcode: latest
+
     scripts:
+      - name: Set up keychain
+        script: keychain initialize
+
+      - name: Fetch signing files from Apple
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Add certificates to keychain
+        script: keychain add-certificates
+
       - name: Install dependencies
         script: npm ci
+
       - name: Expo prebuild iOS
         script: npx expo prebuild --clean --platform ios --non-interactive
-      - name: Set up code signing
+
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install --repo-update
+
+      - name: Set Xcode code signing
         script: xcode-project use-profiles
+
+      - name: Set build number
+        script: |
+          WORKSPACE=$(find ios -name "*.xcworkspace" -maxdepth 1 | head -1)
+          PLIST=$(find ios -name "Info.plist" -not -path "*/Pods/*" | head -1)
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST"
+
       - name: Build IPA
         script: |
+          WORKSPACE=$(find ios -name "*.xcworkspace" -maxdepth 1 | head -1)
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
           xcode-project build-ipa \
-            --workspace "ios/FitAI Coach.xcworkspace" \
-            --scheme "FitAI Coach"
+            --workspace "$WORKSPACE" \
+            --scheme "$SCHEME"
+
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
+
     publishing:
       app_store_connect:
-        auth: integration
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
-
-  android-release:
-    name: Android Release (Play Store)
-    max_build_duration: 90
-    environment:
-      android_signing:
-        - fitai-keystore
-      vars:
-        BUNDLE_ID: com.fitaicoach.app
-        EXPO_PUBLIC_API_URL: "https://api.fitaicoach.online"
-      node: v20.17.0
-      java: "17"
-    scripts:
-      - name: Install dependencies
-        script: npm ci
-      - name: Expo prebuild Android
-        script: npx expo prebuild --clean --platform android --non-interactive
-      - name: Build AAB
-        script: |
-          cd android
-          chmod +x ./gradlew
-          ./gradlew bundleRelease
-    artifacts:
-      - android/app/build/outputs/**/*.aab
-      - android/app/build/outputs/**/*.apk
