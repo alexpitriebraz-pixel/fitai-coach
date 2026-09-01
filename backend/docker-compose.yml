@@ -42,7 +42,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - caddy_data:/data
     environment:
-      CADDY_INGRESS_NETWORKS: fitai-backend_default
+      CADDY_INGRESS_NETWORKS: backend_default
 
 volumes:
   pgdata:
