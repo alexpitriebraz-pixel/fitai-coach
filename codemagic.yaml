@@ -1,15 +1,15 @@
 workflows:
 
-  # ─── Android Release (Google Play) ──────────────────────────────────────────
+  # ─── Android Release ─────────────────────────────────────────────────────────
   android-release:
-    name: Android Release (Google Play)
+    name: Android Release (AAB)
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
       java: "17"
       node: "20"
       groups:
-        - android_signing  # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD, GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        - android_signing  # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
       vars:
         EXPO_PUBLIC_API_URL: "https://api.fitaicoach.online"
 
@@ -36,14 +36,9 @@ workflows:
 
     artifacts:
       - android/app/build/outputs/bundle/release/app-release.aab
+      - android/app/build/outputs/apk/release/*.apk
 
-    publishing:
-      google_play:
-        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
-        track: internal
-        submit_as_draft: false
-
-  # ─── iOS Release (App Store / TestFlight) ───────────────────────────────────
+  # ─── iOS Release (App Store / TestFlight) ────────────────────────────────────
   ios-release:
     name: iOS Release (App Store)
     max_build_duration: 90
@@ -56,6 +51,7 @@ workflows:
         - ios_signing  # APP_STORE_CONNECT_PRIVATE_KEY, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
       vars:
         BUNDLE_ID: com.fitaicoach.app
+        APPLE_TEAM_ID: "74NZNS38SF"
         EXPO_PUBLIC_API_URL: "https://api.fitaicoach.online"
 
     scripts:
@@ -64,6 +60,9 @@ workflows:
 
       - name: Fetch signing files from Apple
         script: |
+          # Suporte a nomes alternativos de variáveis no grupo ios_signing
+          export APP_STORE_CONNECT_PRIVATE_KEY="${APP_STORE_CONNECT_PRIVATE_KEY:-$PRIVATE_KEY}"
+          export APP_STORE_CONNECT_ISSUER_ID="${APP_STORE_CONNECT_ISSUER_ID:-$ISSUER_ID}"
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create
@@ -87,7 +86,6 @@ workflows:
 
       - name: Set build number
         script: |
-          WORKSPACE=$(find ios -name "*.xcworkspace" -maxdepth 1 | head -1)
           PLIST=$(find ios -name "Info.plist" -not -path "*/Pods/*" | head -1)
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST"
 
